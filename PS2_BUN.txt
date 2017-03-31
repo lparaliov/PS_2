@@ -1,0 +1,281 @@
+//#define F_CPU 16000000
+#include <Arduino.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <LiquidCrystal.h>
+#include <stdint.h>
+//#include <EEPROM.h>
+typedef enum param_disp {
+	DISP_PARAM_KP,
+	DISP_PARAM_KI,
+	DISP_PARAM_KD,
+
+	DISP_RUNTIME,
+	DISP_PARAM_COUNT
+} param_disp_t;
+
+uint8_t nivelMeniu = 0;
+uint8_t btnOK=12, btnStanga=11, btnCancel=10, btnDreapta=9;
+volatile int contor = 0;
+volatile int apasat = 0;
+volatile int starea_curenta = 0, parametru_modificat = 0;
+float kd = 35.1, ki = 23.5, kp = 28.9, tempC = 0;
+param_disp_t dispId = DISP_PARAM_KP;
+
+LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
+int tinit = 0, tinc = 15, tmen = 20, trac = 12, tcrt = tinit;
+
+int buton_apasat(uint8_t buton);
+
+unsigned char EEPROM_read(unsigned int uiAddress)
+{
+	/* Wait for completion of previous write */
+	while(EECR & (1<<EEPE))
+	;
+	/* Set up address register */
+	EEAR = uiAddress;
+	/* Start eeprom read by writing EERE */
+	EECR |= (1<<EERE);
+	/* Return data from Data Register */
+	return EEDR;
+}
+
+void EEPROM_write(unsigned int uiAddress, unsigned char ucData)
+{
+	/* Wait for completion of previous write */
+	while(EECR & (1<<EEPE));
+	/* Set up address and Data Registers */
+	EEAR = uiAddress;
+	EEDR = ucData;
+	/* Write logical one to EEMPE */
+	EECR |= (1<<EEMPE);
+	/* Start eeprom write by setting EEPE */
+	EECR |= (1<<EEPE);
+}
+// EEPROM_write_genericData(100, &kd, sizeof(kd))
+void EEPROM_write_genericData(unsigned int uiAddress, uint8_t *inBuf, uint16_t len)
+{
+	uint16_t currentIndex = 0;
+	while (currentIndex < len)
+	{
+		EEPROM_write(uiAddress + currentIndex, *(inBuf + currentIndex));
+		currentIndex++;
+	}
+}
+
+void EEPROM_read_genericData(unsigned int uiAddress, uint8_t *outBuf, uint16_t maxlen)
+{
+	uint16_t currentIndex = 0;
+	while (currentIndex < maxlen)
+	{
+		unsigned char c = EEPROM_read(uiAddress + currentIndex);
+		memcpy(outBuf + currentIndex, &c, 1);
+		currentIndex++;
+	}	
+}
+
+void show_runtime()
+{	
+	lcd.clear();
+	uint8_t seconds = millis()/1000;
+	uint8_t minutes = seconds/60;
+	tcrt += seconds;
+	lcd.print("Runtime ");
+	lcd.setCursor(0, 1);
+	lcd.print("T:");
+	lcd.print(tempC);
+	lcd.print("tset:25.5");
+
+	lcd.setCursor(8, 0);
+	if(tcrt < tinc)
+	lcd.print("i");
+		else if(tcrt <= tinit + tmen)
+			lcd.print("m");
+		else if(tcrt <= tinit + tmen + trac)
+			lcd.print("r");
+	else tcrt = tinit;
+	//lcd.setCursor(10, 0);
+	//lcd.print
+	//sa afisam timpul ramas din stadiul la care suntem
+}
+
+void meniu_kp()
+{
+	lcd.clear();
+	lcd.setCursor(0, 0);
+	lcd.print("1. Kp");
+	lcd.setCursor(0, 1);
+	lcd.print(kp);
+}
+
+void meniu_ki()
+{
+	lcd.clear();
+	lcd.setCursor(0, 0);
+	lcd.print("2. Ki");
+	lcd.setCursor(0, 1);
+	lcd.print(ki);
+}
+
+void meniu_kd()
+{
+	lcd.clear();
+	lcd.setCursor(0, 0);
+	lcd.print("3. Kd");
+	lcd.setCursor(0, 1);
+	lcd.print(kd);
+}
+
+void citire_butoane_nivel0()
+{
+	if (buton_apasat(btnDreapta) == 1)
+	{
+		dispId = (param_disp_t)(dispId + 1);
+		dispId = (param_disp_t)(dispId % DISP_PARAM_COUNT);
+	}
+
+	else if (buton_apasat(btnStanga) == 1)
+	{
+		dispId = (param_disp_t)(dispId - 1);
+		dispId = (param_disp_t)((DISP_PARAM_COUNT + dispId) % DISP_PARAM_COUNT);
+	}
+
+	else if (buton_apasat(btnOK) == 1)
+	{
+		nivelMeniu = 1;
+	}
+}
+
+void meniu_plus()
+{
+	switch (dispId)
+	{
+		case DISP_PARAM_KP:
+			kp += 1;
+			break;
+		case DISP_PARAM_KI:
+			ki += 1;
+		break;
+		case DISP_PARAM_KD:
+			kd += 1;
+		break;
+	}
+}
+
+void meniu_minus()
+{
+	switch (dispId)
+	{
+		case DISP_PARAM_KP:
+			kp -= 1;
+		break;
+		case DISP_PARAM_KI:
+			ki -= 1;
+		break;
+		case DISP_PARAM_KD:
+			kd -= 1;
+		break;
+	}
+}
+
+void citire_butoane_nivel1()
+{
+	if (buton_apasat(btnDreapta) == 1)
+	{
+		meniu_plus();
+	}
+
+	else if (buton_apasat(btnStanga) == 1)
+	{
+		meniu_minus();
+	}
+
+	else if (buton_apasat(btnOK) == 1)
+	{
+		nivelMeniu = 0;
+		EEPROM_write_genericData(100, (uint8_t*)&kd, sizeof(kd));
+	}
+
+	else if (buton_apasat(btnCancel) == 1)
+	{
+		nivelMeniu = 0;
+	}
+}
+
+void citire_butoane()
+{
+	if (nivelMeniu != 0)
+	{
+		citire_butoane_nivel1();
+	}
+	else
+	{
+		citire_butoane_nivel0();
+	}
+}
+
+void meniu_butoane()
+{
+	switch(dispId) {
+		case DISP_PARAM_KP:
+			meniu_kp();
+		break;
+
+		case DISP_PARAM_KI:
+			meniu_ki();
+		break;
+
+		case DISP_PARAM_KD:
+			meniu_kd();
+		break;
+
+		case DISP_RUNTIME:
+			show_runtime();
+		break;
+
+		default:
+		break;
+	}
+}
+
+void setup() {
+  // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  /*EEPROM_write(1000, kd);
+  EEPROM_write(1002, ki);
+  EEPROM_write(1004, kp);*/
+  //kd = EEPROM_read(1000);
+ // ki = EEPROM_read(1002);
+  //kp = EEPROM_read(1004);
+  show_runtime();
+  pinMode(btnOK, INPUT);
+  pinMode(btnCancel, INPUT);
+  pinMode(btnDreapta, INPUT);
+  pinMode(btnStanga, INPUT);
+
+  EEPROM_read_genericData(100, (uint8_t*)&kd, sizeof(kd));
+}
+
+int buton_apasat(uint8_t buton)
+{
+	while((digitalRead(buton)&1) == 0)
+	{
+		contor++;
+		if(contor == 127)
+		{
+			contor = 0;
+			return 1;
+		}
+	}		
+	return 0;
+}
+
+void loop() {
+
+	meniu_butoane();
+	citire_butoane();
+	tempC = analogRead(A0) / 2;
+	delay(400);
+	
+}
+
