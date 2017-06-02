@@ -23,18 +23,16 @@ typedef enum param_disp {
 
 uint8_t nivelMeniu = 0, duty_cycle = 50;
 uint8_t btnOK=13, btnStanga=12, btnCancel=11, btnDreapta=10;
-volatile int contor = 0, contor_cit_temp = 0;
-volatile int apasat = 0;
-volatile int starea_curenta = 0, parametru_modificat = 0;
+volatile int contor = 0;
 volatile int v[100], indice_v=-1;
 double pwm = 50;
-//float kd = 35.1, ki = 23.5, kp = 28.9, tempC = 0;
-double kp = 101, ki = 0.2, kd = 0.05, TempC = 0, Tset = 50, Tset_mod = Tset;
-param_disp_t dispId = DISP_PARAM_KP;
+double kp = 101, ki = 2, kd = 0, TempC = 0, Tset = 50, Tset_mod = Tset, kp_mom = kp, ki_mom = ki, kd_mom = kd;
+
+param_disp_t dispId = DISP_RUNTIME;
 
 LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
-int tinit = 0, tfinal = 10, tinc = 30, tmen = 10, trac = 30, tcrt = 0, sec = 0, min = 0, t=0;
-double Tinit = 0, Tfinal = 0, deltaT=0, Tmin=0, Tmax=50;
+int tinit = 0, tfinal, tinc = 60, tmen = 10, trac = 60, tcrt = 0, sec = 0, min = 0, t = 0,  tinc_mom = tinc, tmen_mom = tmen, trac_mom = trac, Tset_mom = Tset;
+double Tinit = 0, Tfinal = 0, deltaT = 0, Tmin = 0, Tmax = Tset;
 
 
 PID myPID(&TempC, &pwm, &Tset_mod, kp, ki, kd, DIRECT);
@@ -43,7 +41,6 @@ void printCurrentTime()
 {
 	sec = (millis()/1000)%60;
 	min = millis()/60000;
-	tcrt = (millis()/1000)%(tinc + tmen + trac);
 	lcd.setCursor(10, 0);
 	if(min < 10){
 		lcd.print("0");
@@ -86,7 +83,7 @@ void EEPROM_write(unsigned int uiAddress, unsigned char ucData)
 	/* Start eeprom write by setting EEPE */
 	EECR |= (1<<EEPE);
 }
-// EEPROM_write_genericData(100, &kd, sizeof(kd))
+
 void EEPROM_write_genericData(unsigned int uiAddress, uint8_t *inBuf, uint16_t len)
 {
 	uint16_t currentIndex = 0;
@@ -111,9 +108,6 @@ void EEPROM_read_genericData(unsigned int uiAddress, uint8_t *outBuf, uint16_t m
 void show_runtime()
 {	
 	lcd.clear();
-	//uint8_t seconds = millis()/1000;
-	//uint8_t minutes = seconds/60;
-	//tcrt += seconds;
 	lcd.print("Runtime ");
 	printCurrentTime();
 	lcd.setCursor(0, 1);
@@ -123,29 +117,31 @@ void show_runtime()
 	lcd.print(Tset);
 
 	lcd.setCursor(8, 0);
-	lcd.print(pwm);
-	/*if(tcrt < tinc)
-	lcd.print("i");
+	//lcd.print(pwm);
+	if(tcrt < tinc)
+		lcd.print("i");
 		else if(tcrt <= (tinc + tmen))
 			lcd.print("m");
 		else if(tcrt <= (tinc+ tmen + trac))
 			lcd.print("r");
-	else tcrt = tinit;*/
+}
 
-	//lcd.setCursor(10, 0);
-	//lcd.print
-	//sa afisam timpul ramas din stadiul la care suntem
+
+void stinge_bec(){
+	analogWrite(9, 0);
 }
 
 void resetare()
 {
 	kp=101;
-	ki=0.2;
-	kd=0.05;
-	tinc=20;
+	ki=2;
+	kd=0;
+	tcrt = 0;
+	tinc=60;
 	tmen=10;
-	trac=20;
+	trac=60;
 	Tset=50;
+	stinge_bec();
 }
 
 void meniu_kp()
@@ -185,8 +181,7 @@ void citire_butoane_nivel0()
 
 	else if (buton_apasat(btnStanga) == 1)
 	{
-		dispId = (param_disp_t)(dispId - 1);
-		dispId = (param_disp_t)((DISP_PARAM_COUNT + dispId) % DISP_PARAM_COUNT);
+		dispId = (param_disp_t)((DISP_PARAM_COUNT + dispId - 1) % DISP_PARAM_COUNT);
 	}
 
 	else if (buton_apasat(btnOK) == 1)
@@ -207,24 +202,30 @@ void meniu_plus()
 		case DISP_PARAM_KP:
 			kp += 0.1;
 			break;
+
 		case DISP_PARAM_KI:
 			ki += 0.1;
 		break;
+		
 		case DISP_PARAM_KD:
 			kd += 0.1;
 		break;
+		
 		case DISP_TINC:
-		tinc += 1;
-		break;
+			tinc += 1;
+			break;
+		
 		case DISP_TMEN:
-		tmen += 1;
-		break;
+			tmen += 1;
+			break;
+
 		case DISP_TRAC:
-		trac += 1;
-		break;
+			trac += 1;
+			break;
+
 		case DISP_TSET:
-		Tset += 1;
-		break;
+			Tset += 1;
+			break;
 	}
 }
 
@@ -234,24 +235,95 @@ void meniu_minus()
 	{
 		case DISP_PARAM_KP:
 			kp -= 0.1;
-		break;
+			break;
+
 		case DISP_PARAM_KI:
 			ki -= 0.1;
-		break;
+			break;
+
 		case DISP_PARAM_KD:
 			kd -= 0.1;
-		break;
+			break;
+
 		case DISP_TINC:
-		tinc -= 1;
-		break;
+			tinc -= 1;
+			break;
+		
 		case DISP_TMEN:
-		tmen -= 1;
-		break;
+			tmen -= 1;
+			break;
+		
 		case DISP_TRAC:
-		trac -= 1;
-		break;
+			trac -= 1;
+			break;
+		
 		case DISP_TSET:
-		Tset -= 1;
+			Tset -= 1;
+			break;
+	}
+}
+
+void cancel_button(){
+	switch(dispId){
+		case DISP_PARAM_KP:
+			kp = kp_mom;
+			break;
+		
+		case DISP_PARAM_KI:
+			ki = ki_mom;
+			break;
+
+		case DISP_PARAM_KD:
+			kd = kd_mom;
+			break;
+
+		case DISP_TINC:
+			tinc = tinc_mom;
+			break;
+
+		case DISP_TMEN:
+			tmen = tmen_mom;
+			break;
+
+		case DISP_TRAC:
+			trac = trac_mom;
+			break;
+
+		case DISP_TSET:
+			Tset = Tset_mom;
+			break;
+	}
+}
+
+void scrie_EEPROM(){
+	switch (dispId)
+	{
+		case DISP_PARAM_KP:
+		EEPROM_write_genericData(100, (uint8_t*)&kp, sizeof(kp));
+		break;
+		
+		case DISP_PARAM_KI:
+		EEPROM_write_genericData(200, (uint8_t*)&ki, sizeof(ki));
+		break;
+
+		case DISP_PARAM_KD:
+		EEPROM_write_genericData(300, (uint8_t*)&kd, sizeof(kd));
+		break;
+
+		case DISP_TINC:
+		EEPROM_write_genericData(400, (uint8_t*)&tinc, sizeof(tinc));
+		break;
+
+		case DISP_TMEN:
+		EEPROM_write_genericData(500, (uint8_t*)&tmen, sizeof(tmen));
+		break;
+
+		case DISP_TRAC:
+		EEPROM_write_genericData(600, (uint8_t*)&trac, sizeof(trac));
+		break;
+
+		case DISP_TSET:
+		EEPROM_write_genericData(700, (uint8_t*)&Tset, sizeof(Tset));
 		break;
 	}
 }
@@ -271,12 +343,17 @@ void citire_butoane_nivel1()
 	else if (buton_apasat(btnOK) == 1)
 	{
 		nivelMeniu = 0;
-		//EEPROM_write_genericData(100, (uint8_t*)&kd, sizeof(kd));
+		lcd.setCursor(5, 0);
+		lcd.print("Save to EEPROM?");
+		if(buton_apasat(btnOK) == 1 ){
+			scrie_EEPROM();
+		}
 	}
 
 	else if (buton_apasat(btnCancel) == 1)
 	{
 		nivelMeniu = 0;
+		cancel_button();
 	}
 }
 
@@ -284,15 +361,16 @@ void citire_butoane_nivel2()
 {
 	lcd.clear();
 	lcd.setCursor(0, 0);
-	lcd.print("Are you sure you want to reset?");
-	if(buton_apasat(btnOK)==1)
+	lcd.print("Are you sure you");
+	lcd.print("want to reset?");
+	if(buton_apasat(btnOK) == 1)
 	{
 		resetare();
-		nivelMeniu=0;
+		nivelMeniu = 0;
 	}
 	else
-		if(buton_apasat(btnCancel)==1)
-		nivelMeniu=0;
+		if(buton_apasat(btnCancel) == 1)
+		nivelMeniu = 0;
 
 }
 
@@ -397,7 +475,7 @@ void meniu_butoane()
 		meniu_reset();
 		break;
 
-		default:
+		default: show_runtime();
 		break;
 	}
 }
@@ -409,15 +487,18 @@ void setup() {
   /*EEPROM_write(1000, kd);
   EEPROM_write(1002, ki);
   EEPROM_write(1004, kp);*/
-  //kd = EEPROM_read(1000);
- // ki = EEPROM_read(1002);
-  //kp = EEPROM_read(1004);
-  //DDRB = 0x01;
-  
-  //DDRB = 0x01
-  Tinit=(float)analogRead(A0)*500.0/1023.0;
-  Tmin=(float)analogRead(A0)*500.0/1023.0;
-  Tmax=Tset;
+	EEPROM_read_genericData(300, (uint8_t*)&kd, sizeof(kd));
+	EEPROM_read_genericData(200, (uint8_t*)&ki, sizeof(ki));
+    EEPROM_read_genericData(100, (uint8_t*)&kp, sizeof(kp));
+	EEPROM_read_genericData(400, (uint8_t*)&tinc, sizeof(tinc));
+	EEPROM_read_genericData(500, (uint8_t*)&tmen, sizeof(tmen));
+	EEPROM_read_genericData(600, (uint8_t*)&trac, sizeof(trac));
+	EEPROM_read_genericData(700, (uint8_t*)&Tset, sizeof(Tset));
+ 
+  Tinit = (float)analogRead(A0)*500.0/1023.0;
+  //Tmin = (float)analogRead(A0)*500.0/1023.0;
+  Tmin = Tinit;
+  Tmax = Tset;
   myPID.SetMode(AUTOMATIC);
   int LED = 9;
   show_runtime();
@@ -426,7 +507,7 @@ void setup() {
   pinMode(btnCancel, INPUT);
   pinMode(btnDreapta, INPUT);
   pinMode(btnStanga, INPUT);
-
+  Serial.begin(9600);
   //EEPROM_read_genericData(100, (uint8_t*)&kd, sizeof(kd));
 }
 
@@ -457,73 +538,83 @@ void regulator_P(){
 }
 
 double setPoint(double secundaCurenta)
-{	if(tcrt%(tinc+tmen+trac)!=0)
-		{
-			if(tcrt<=tinc)
+{	//if(tcrt%(tinc+tmen+trac)!=0)
+		//{
+			tcrt = (millis()/1000)%(tinc + tmen + trac);
+			if(tcrt <= tinc)
 			{
+			Serial.print(tcrt);
+			Serial.print("  ");
+			Serial.print(tinc);
+			Serial.println("inc");
 				//secundaCurenta=0;
 				deltaT= abs(Tmax-Tmin);
-				tfinal=tinc;
-				Tinit=Tmin;
-				if(secundaCurenta<=tfinal)
+				tfinal = tinc;
+				Tinit = Tmin;
+				Tfinal = Tmax;
+				Serial.print(tfinal);
+				Serial.print("  ");
+			    Serial.print(deltaT);		
+				Serial.print("  ");
+				Serial.print(secundaCurenta);		
+				Serial.print("  ");
+				Serial.print(Tinit);		
+				Serial.println("  ");
+				if(secundaCurenta <= tfinal)
 				{
-					secundaCurenta++;
-					return Tinit+(secundaCurenta/tfinal)*deltaT;
+					//secundaCurenta++;
+					return Tinit+( secundaCurenta/tfinal)*deltaT;
 				}
 			}
-			else if(tcrt<=tinc+tmen)
+			else if(tcrt > tinc && tcrt <= tinc+tmen)
 			{
-				tfinal=tmen;
+				Serial.println("men");
+				tfinal = tmen;
 				//secundaCurenta=0;
-				if(secundaCurenta<=tfinal)
+				if(secundaCurenta <= tfinal)
 				{
-					secundaCurenta++;
+					//secundaCurenta++;
 					return Tfinal;
 				}
 			}
-			else if(tcrt<=tinc+tmen+trac)
+			else if(tcrt > tinc + tmen && tcrt <= tinc + tmen + trac)
 			{
+				Serial.println("rac");
 				//secundaCurenta=0;
 				deltaT= abs(Tmax-Tmin);
-				tfinal=trac;
-				Tinit=Tmax;
-				if(secundaCurenta<=tfinal)
+				tfinal = trac;
+				Tinit = Tmax;
+				Tfinal = Tmin;
+				if(secundaCurenta <= tfinal)
 				{
-					secundaCurenta++;
+					//secundaCurenta++;
 					return Tinit-(secundaCurenta/tfinal)*deltaT;
 				}
 			}
-		}
-		else
-		tcrt=0;
+		//}
+		//else
+		// tcrt = tcrt%(tinc+tmen+trac);
 }
 
 void aprinde_bec(){
+	static uint32_t lastTime = 0;
 	//int pwm = (duty_cycle/100.00)*255.00;
 	//regulator_P();
 	if(tcrt == 0 || tcrt == tinc || tcrt == (tinc + tmen) || tcrt == (tinc + tmen + trac))
 	{
-		t=0;
+		t = 0;
 	}
-	if(millis()%1000==0)
-	{
-		
+	if(millis() > (lastTime + 1000))
+	{		
 		t++;
-		
+		lastTime=millis();
 	}
-	Tset_mod=setPoint(t);
+	Tset_mod = setPoint(t);
+	//Serial.println(Tset_mod);
 	myPID.Compute();
 	analogWrite(9, (int)pwm);
-	
-	
-	//if(tempC >= 29);
-		//OCR1A =(duty_cycle/100.00)*255.00;
-		//PORTB ^= (1<<9);	
 }
 
-void stinge_bec(){
-	analogWrite(9, 0);
-}
 
 /*void regulator_PI(){
 	float sum_err = 0;
@@ -532,9 +623,6 @@ void stinge_bec(){
 	pwm = err * kp + sum_err * ki;
 }*/
 
-void regulator_PID(){
-	
-}
 
 float citire_temperatura(){
 	int i;
@@ -548,15 +636,8 @@ void loop() {
 	
 	meniu_butoane();
 	citire_butoane();
-	//tempC = analogRead(A0);
 	citire_temperatura();
-	//if(contor_cit_temp%10 == 0)
-	//v[++indice_v]=tempC;
-	//tempC = analogRead(A0)/2;
 	aprinde_bec();
-	//PORTB ^= (1<<9);
-	//analogWrite(9, 255);
-	//contor_cit_temp++;
 	delay(200);	
 }
 
